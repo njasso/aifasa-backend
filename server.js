@@ -11,7 +11,10 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
-app.use('/uploads', express.static('uploads'));
+
+// Cette ligne est retirée, car le dossier 'uploads' n'est pas persistant sur Render.
+// Toutes les images et documents doivent être gérés par un service externe comme Cloudinary.
+// app.use('/uploads', express.static('uploads'));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/documents', documentRoutes);
@@ -22,5 +25,5 @@ app.use('/api/gallery', galleryRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`Serveur démarré sur le port ${PORT}`);
+  console.log(`Serveur démarré sur le port ${PORT}`);
 });
