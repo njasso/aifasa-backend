@@ -43,6 +43,10 @@ router.get('/', async (req, res) => {
 // Route pour ajouter un nouveau membre (admin seulement, avec upload de photo)
 // Le champ attendu est 'profilePicture' pour correspondre au frontend
 router.post('/', authenticateToken, cpUpload, async (req, res) => {
+  // Logs pour le débogage. Vérifiez la console de votre backend pour voir les champs de formulaire reçus.
+  console.log('Champs de texte reçus:', req.body);
+  console.log('Fichiers reçus:', req.files);
+
   if (req.user.role !== 'admin') {
     if (req.files.profilePicture && req.files.profilePicture[0]) await fs.unlink(req.files.profilePicture[0].path).catch(e => console.error("Erreur de suppression du fichier temp:", e));
     return res.status(403).json({ error: 'Accès interdit' });
@@ -107,6 +111,10 @@ router.post('/', authenticateToken, cpUpload, async (req, res) => {
 // Route pour mettre à jour un membre (admin seulement, avec gestion de la photo)
 // Le champ attendu est 'profilePicture' pour correspondre au frontend
 router.put('/:id', authenticateToken, cpUpload, async (req, res) => {
+  // Logs pour le débogage. Vérifiez la console de votre backend pour voir les champs de formulaire reçus.
+  console.log('Champs de texte reçus:', req.body);
+  console.log('Fichiers reçus:', req.files);
+
   if (req.user.role !== 'admin') {
     if (req.files.profilePicture && req.files.profilePicture[0]) await fs.unlink(req.files.profilePicture[0].path).catch(e => console.error("Erreur de suppression du fichier temp:", e));
     return res.status(403).json({ error: 'Accès interdit' });
