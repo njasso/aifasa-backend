@@ -10,6 +10,24 @@ const fs = require('fs').promises; // Pour supprimer le fichier temporaire
 // Vous pouvez aussi spécifier une destination plus spécifique si vous le souhaitez
 const upload = multer({ dest: 'uploads/' });
 
+// Définition de tous les champs attendus par Multer, y compris les champs de texte et les fichiers
+// Cela résout l'erreur "MulterError: Unexpected field"
+const cpUpload = upload.fields([
+  { name: 'profilePicture', maxCount: 1 },
+  { name: 'firstName' },
+  { name: 'lastName' },
+  { name: 'sex' },
+  { name: 'location' },
+  { name: 'address' },
+  { name: 'contact' },
+  { name: 'profession' },
+  { name: 'employmentStructure' },
+  { name: 'companyOrProject' },
+  { name: 'activities' },
+  { name: 'role' },
+  // Ajoutez d'autres champs si votre formulaire en envoie plus
+]);
+
 // Route pour récupérer tous les membres
 router.get('/', async (req, res) => {
   try {
@@ -24,15 +42,15 @@ router.get('/', async (req, res) => {
 
 // Route pour ajouter un nouveau membre (admin seulement, avec upload de photo)
 // Le champ attendu est 'profilePicture' pour correspondre au frontend
-router.post('/', authenticateToken, upload.single('profilePicture'), async (req, res) => {
+router.post('/', authenticateToken, cpUpload, async (req, res) => {
   if (req.user.role !== 'admin') {
-    if (req.file) await fs.unlink(req.file.path).catch(e => console.error("Erreur de suppression du fichier temp:", e));
+    if (req.files.profilePicture && req.files.profilePicture[0]) await fs.unlink(req.files.profilePicture[0].path).catch(e => console.error("Erreur de suppression du fichier temp:", e));
     return res.status(403).json({ error: 'Accès interdit' });
   }
 
-  // Vérification si un fichier a été fourni (optionnel pour le profil)
-  // et si Multer l'a traité
-  if (req.file && !req.file.path) {
+  const profilePictureFile = req.files.profilePicture ? req.files.profilePicture[0] : null;
+
+  if (profilePictureFile && !profilePictureFile.path) {
     console.error('Erreur: Fichier fourni mais Multer n\'a pas pu le traiter correctement.');
     return res.status(400).json({ error: 'Erreur de traitement du fichier par le serveur.' });
   }
@@ -49,9 +67,9 @@ router.post('/', authenticateToken, upload.single('profilePicture'), async (req,
     let public_id = null;
 
     // Si un fichier a été uploadé, le traiter avec Cloudinary
-    if (req.file) {
-      console.log('Fichier de profil reçu par Multer:', req.file);
-      const result = await cloudinary.uploader.upload(req.file.path, {
+    if (profilePictureFile) {
+      console.log('Fichier de profil reçu par Multer:', profilePictureFile);
+      const result = await cloudinary.uploader.upload(profilePictureFile.path, {
         folder: 'aifasa_members_profiles', // Dossier spécifique pour les photos de profil
         resource_type: 'image' // S'assurer que c'est traité comme une image
       });
@@ -80,21 +98,23 @@ router.post('/', authenticateToken, upload.single('profilePicture'), async (req,
     res.status(500).json({ error: 'Erreur serveur lors de l\'ajout du membre', details: error.message });
   } finally {
     // Supprimer le fichier temporaire de Multer
-    if (req.file) {
-      await fs.unlink(req.file.path).catch(e => console.error("Erreur lors de la suppression du fichier temporaire:", e));
+    if (profilePictureFile) {
+      await fs.unlink(profilePictureFile.path).catch(e => console.error("Erreur lors de la suppression du fichier temporaire:", e));
     }
   }
 });
 
 // Route pour mettre à jour un membre (admin seulement, avec gestion de la photo)
 // Le champ attendu est 'profilePicture' pour correspondre au frontend
-router.put('/:id', authenticateToken, upload.single('profilePicture'), async (req, res) => {
+router.put('/:id', authenticateToken, cpUpload, async (req, res) => {
   if (req.user.role !== 'admin') {
-    if (req.file) await fs.unlink(req.file.path).catch(e => console.error("Erreur de suppression du fichier temp:", e));
+    if (req.files.profilePicture && req.files.profilePicture[0]) await fs.unlink(req.files.profilePicture[0].path).catch(e => console.error("Erreur de suppression du fichier temp:", e));
     return res.status(403).json({ error: 'Accès interdit' });
   }
 
-  if (req.file && !req.file.path) {
+  const profilePictureFile = req.files.profilePicture ? req.files.profilePicture[0] : null;
+
+  if (profilePictureFile && !profilePictureFile.path) {
     console.error('Erreur: Fichier fourni mais Multer n\'a pas pu le traiter correctement.');
     return res.status(400).json({ error: 'Erreur de traitement du fichier par le serveur.' });
   }
@@ -113,12 +133,12 @@ router.put('/:id', authenticateToken, upload.single('profilePicture'), async (re
     let public_id = existing_public_id; // Conserver l'ancien public_id par défaut
 
     // Si un nouveau fichier est uploadé, le traiter avec Cloudinary
-    if (req.file) {
+    if (profilePictureFile) {
       // Si une ancienne photo existait, la supprimer de Cloudinary
       if (existing_public_id) {
         await cloudinary.uploader.destroy(existing_public_id).catch(e => console.error("Erreur suppression ancienne photo Cloudinary:", e));
       }
-      const result = await cloudinary.uploader.upload(req.file.path, {
+      const result = await cloudinary.uploader.upload(profilePictureFile.path, {
         folder: 'aifasa_members_profiles',
         resource_type: 'image'
       });
@@ -147,8 +167,8 @@ router.put('/:id', authenticateToken, upload.single('profilePicture'), async (re
     res.status(500).json({ error: 'Erreur serveur lors de la mise à jour du membre', details: error.message });
   } finally {
     // Supprimer le fichier temporaire de Multer
-    if (req.file) {
-      await fs.unlink(req.file.path).catch(e => console.error("Erreur lors de la suppression du fichier temporaire:", e));
+    if (profilePictureFile) {
+      await fs.unlink(profilePictureFile.path).catch(e => console.error("Erreur lors de la suppression du fichier temporaire:", e));
     }
   }
 });
