@@ -11,7 +11,7 @@ const fs = require('fs').promises; // Pour supprimer le fichier temporaire
 const upload = multer({ dest: 'uploads/' });
 
 // Définition de tous les champs attendus par Multer, y compris les champs de texte et les fichiers
-// Cela résout l'erreur "MulterError: Unexpected field"
+// Cette configuration est mise à jour pour inclure tous les champs de votre modèle Member
 const cpUpload = upload.fields([
   { name: 'profilePicture', maxCount: 1 },
   { name: 'firstName' },
@@ -25,6 +25,15 @@ const cpUpload = upload.fields([
   { name: 'companyOrProject' },
   { name: 'activities' },
   { name: 'role' },
+  { name: 'photo_url' }, // Pour les requêtes PUT sans nouvelle photo
+  { name: 'public_id' }, // Pour les requêtes PUT sans nouvelle photo
+  // Champs de statut financier mis à jour
+  { name: 'is_new_member' },
+  { name: 'last_annual_inscription_date' },
+  { name: 'has_paid_adhesion' },
+  { name: 'social_contribution_status' },
+  { name: 'tontine_status' },
+  { name: 'ag_absence_count' }
   // Ajoutez d'autres champs si votre formulaire en envoie plus
 ]);
 
@@ -41,7 +50,6 @@ router.get('/', async (req, res) => {
 });
 
 // Route pour ajouter un nouveau membre (admin seulement, avec upload de photo)
-// Le champ attendu est 'profilePicture' pour correspondre au frontend
 router.post('/', authenticateToken, cpUpload, async (req, res) => {
   // Logs pour le débogage. Vérifiez la console de votre backend pour voir les champs de formulaire reçus.
   console.log('Champs de texte reçus:', req.body);
@@ -60,11 +68,12 @@ router.post('/', authenticateToken, cpUpload, async (req, res) => {
   }
 
   try {
-    // Récupération des champs du corps de la requête
-    // Notez que les noms des champs ici doivent correspondre à ceux de votre frontend formData
+    // Récupération des champs du corps de la requête, y compris les nouveaux champs de statut financier
     const {
       firstName, lastName, sex, location, address, contact,
-      profession, employmentStructure, companyOrProject, activities, role
+      profession, employmentStructure, companyOrProject, activities, role,
+      is_new_member, last_annual_inscription_date, has_paid_adhesion,
+      social_contribution_status, tontine_status, ag_absence_count
     } = req.body;
 
     let photo_url = null;
@@ -74,34 +83,36 @@ router.post('/', authenticateToken, cpUpload, async (req, res) => {
     if (profilePictureFile) {
       console.log('Fichier de profil reçu par Multer:', profilePictureFile);
       const result = await cloudinary.uploader.upload(profilePictureFile.path, {
-        folder: 'aifasa_members_profiles', // Dossier spécifique pour les photos de profil
-        resource_type: 'image' // S'assurer que c'est traité comme une image
+        folder: 'aifasa_members_profiles',
+        resource_type: 'image'
       });
       console.log('Résultat de l\'upload Cloudinary pour le profil:', result);
       photo_url = result.secure_url;
-      public_id = result.public_id; // Stocker le public_id pour la suppression future
+      public_id = result.public_id;
     }
 
-    // Création du membre en base de données
-    // Assurez-vous que votre modèle Member.create accepte tous ces champs
+    // Création du membre en base de données avec tous les champs
     const member = await Member.create({
       firstName, lastName, sex, location, address, contact,
       profession, employmentStructure, companyOrProject, activities, role,
-      photo_url, // Nom de la colonne dans la base de données
-      public_id // Nom de la colonne dans la base de données
+      photo_url,
+      public_id,
+      is_new_member: is_new_member === 'true', // Multer renvoie des chaînes pour les booléens
+      last_annual_inscription_date: last_annual_inscription_date || null,
+      has_paid_adhesion: has_paid_adhesion === 'true', // Multer renvoie des chaînes
+      social_contribution_status: JSON.parse(social_contribution_status || '{}'),
+      tontine_status: JSON.parse(tontine_status || '{}'),
+      ag_absence_count: parseInt(ag_absence_count, 10) || 0
     });
     console.log('Membre créé en base de données:', member);
 
-    res.status(201).json(member); // 201 Created pour une création réussie
+    res.status(201).json(member);
 
   } catch (error) {
-    // --- LOG DÉTAILLÉ EN CAS D'ERREUR ---
     console.error('ERREUR DÉTAILLÉE lors de l\'ajout du membre:', error.message);
     console.error('Stack Trace:', error.stack);
-    // ------------------------------------
     res.status(500).json({ error: 'Erreur serveur lors de l\'ajout du membre', details: error.message });
   } finally {
-    // Supprimer le fichier temporaire de Multer
     if (profilePictureFile) {
       await fs.unlink(profilePictureFile.path).catch(e => console.error("Erreur lors de la suppression du fichier temporaire:", e));
     }
@@ -109,7 +120,6 @@ router.post('/', authenticateToken, cpUpload, async (req, res) => {
 });
 
 // Route pour mettre à jour un membre (admin seulement, avec gestion de la photo)
-// Le champ attendu est 'profilePicture' pour correspondre au frontend
 router.put('/:id', authenticateToken, cpUpload, async (req, res) => {
   // Logs pour le débogage. Vérifiez la console de votre backend pour voir les champs de formulaire reçus.
   console.log('Champs de texte reçus:', req.body);
@@ -129,20 +139,20 @@ router.put('/:id', authenticateToken, cpUpload, async (req, res) => {
 
   try {
     const memberId = req.params.id;
-    // Récupération des champs du corps de la requête
+    // Récupération de tous les champs du corps de la requête, y compris les nouveaux
     const {
       firstName, lastName, sex, location, address, contact,
       profession, employmentStructure, companyOrProject, activities, role,
-      // photo_url et public_id peuvent être envoyés si pas de nouvelle photo
-      photo_url: existing_photo_url, public_id: existing_public_id
+      photo_url: existing_photo_url, public_id: existing_public_id,
+      is_new_member, last_annual_inscription_date, has_paid_adhesion,
+      social_contribution_status, tontine_status, ag_absence_count
     } = req.body;
 
-    let photo_url = existing_photo_url; // Conserver l'ancienne URL par défaut
-    let public_id = existing_public_id; // Conserver l'ancien public_id par défaut
+    let photo_url = existing_photo_url;
+    let public_id = existing_public_id;
 
     // Si un nouveau fichier est uploadé, le traiter avec Cloudinary
     if (profilePictureFile) {
-      // Si une ancienne photo existait, la supprimer de Cloudinary
       if (existing_public_id) {
         await cloudinary.uploader.destroy(existing_public_id).catch(e => console.error("Erreur suppression ancienne photo Cloudinary:", e));
       }
@@ -154,13 +164,18 @@ router.put('/:id', authenticateToken, cpUpload, async (req, res) => {
       public_id = result.public_id;
     }
 
-    // Mise à jour du membre en base de données
-    // Assurez-vous que votre modèle Member.update accepte tous ces champs
+    // Mise à jour du membre en base de données avec tous les champs
     const member = await Member.update(memberId, {
       firstName, lastName, sex, location, address, contact,
       profession, employmentStructure, companyOrProject, activities, role,
       photo_url,
-      public_id
+      public_id,
+      is_new_member: is_new_member === 'true',
+      last_annual_inscription_date: last_annual_inscription_date || null,
+      has_paid_adhesion: has_paid_adhesion === 'true',
+      social_contribution_status: JSON.parse(social_contribution_status || '{}'),
+      tontine_status: JSON.parse(tontine_status || '{}'),
+      ag_absence_count: parseInt(ag_absence_count, 10) || 0
     });
 
     if (!member) return res.status(404).json({ error: 'Membre non trouvé' });
@@ -168,13 +183,10 @@ router.put('/:id', authenticateToken, cpUpload, async (req, res) => {
     res.json(member);
 
   } catch (error) {
-    // --- LOG DÉTAILLÉ EN CAS D'ERREUR ---
     console.error('ERREUR DÉTAILLÉE lors de la mise à jour du membre:', error.message);
     console.error('Stack Trace:', error.stack);
-    // ------------------------------------
     res.status(500).json({ error: 'Erreur serveur lors de la mise à jour du membre', details: error.message });
   } finally {
-    // Supprimer le fichier temporaire de Multer
     if (profilePictureFile) {
       await fs.unlink(profilePictureFile.path).catch(e => console.error("Erreur lors de la suppression du fichier temporaire:", e));
     }
@@ -187,23 +199,20 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 
   try {
     const memberId = req.params.id;
-    // Récupérer le membre pour obtenir son public_id avant de le supprimer de la BD
     const member = await Member.findById(memberId);
 
     if (!member) return res.status(404).json({ error: 'Membre non trouvé' });
 
-    // Si le membre a un public_id, essayez de supprimer la photo de Cloudinary
     if (member.public_id) {
       console.log('Tentative de suppression de Cloudinary pour public_id:', member.public_id);
       await cloudinary.uploader.destroy(member.public_id);
       console.log('Photo supprimée de Cloudinary:', member.public_id);
     }
 
-    // Supprimer le membre de la base de données
     await Member.delete(memberId);
     console.log('Membre supprimé de la base de données:', memberId);
 
-    res.status(204).send(); // 204 No Content pour une suppression réussie sans retour de contenu
+    res.status(204).send();
 
   } catch (error) {
     console.error('Erreur lors de la suppression du membre:', error.message);
