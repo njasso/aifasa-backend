@@ -1,19 +1,20 @@
 const express = require('express');
 const router = express.Router();
-const Member = require('../models/Member'); // Assurez-vous que ce chemin est correct
+// Importez le modèle de membre approprié.
+// Par exemple, si vous utilisez Sequelize, ce serait '.../models/member'.
+const Member = require('../models/Member'); 
 const authenticateToken = require('../middleware/auth');
-const cloudinary = require('../config/cloudinary'); // Assurez-vous que ce chemin est correct
+const cloudinary = require('../config/cloudinary');
 const multer = require('multer');
-const fs = require('fs').promises; // Pour supprimer le fichier temporaire
+const fs = require('fs').promises;
 
 // Configuration de Multer pour le stockage temporaire
-// Vous pouvez aussi spécifier une destination plus spécifique si vous le souhaitez
 const upload = multer({ dest: 'uploads/' });
 
-// Définition de tous les champs attendus par Multer, y compris les champs de texte et les fichiers
-// Cette configuration est mise à jour pour inclure tous les champs de votre modèle Member
+// Définition des champs pour Multer
 const cpUpload = upload.fields([
   { name: 'profilePicture', maxCount: 1 },
+  { name: 'cv', maxCount: 1 }, // Ajout du champ pour le CV
   { name: 'firstName' },
   { name: 'lastName' },
   { name: 'sex' },
@@ -25,8 +26,10 @@ const cpUpload = upload.fields([
   { name: 'companyOrProject' },
   { name: 'activities' },
   { name: 'role' },
-  { name: 'photo_url' }, // Pour les requêtes PUT sans nouvelle photo
-  { name: 'public_id' }, // Pour les requêtes PUT sans nouvelle photo
+  { name: 'photo_url' },
+  { name: 'public_id' },
+  { name: 'cv_url' }, // Ajout pour la mise à jour
+  { name: 'cv_public_id' }, // Ajout pour la mise à jour
   // Champs de statut financier mis à jour
   { name: 'is_new_member' },
   { name: 'last_annual_inscription_date' },
@@ -34,7 +37,6 @@ const cpUpload = upload.fields([
   { name: 'social_contribution_status' },
   { name: 'tontine_status' },
   { name: 'ag_absence_count' }
-  // Ajoutez d'autres champs si votre formulaire en envoie plus
 ]);
 
 // Route pour récupérer tous les membres
@@ -44,114 +46,111 @@ router.get('/', async (req, res) => {
     res.json(members);
   } catch (error) {
     console.error('Erreur lors de la récupération des membres:', error.message);
-    console.error('Stack Trace:', error.stack);
     res.status(500).json({ error: 'Erreur serveur lors de la récupération des membres', details: error.message });
   }
 });
 
-// Route pour ajouter un nouveau membre (admin seulement, avec upload de photo)
+// Route pour ajouter un nouveau membre (admin seulement, avec upload)
 router.post('/', authenticateToken, cpUpload, async (req, res) => {
-  // Logs pour le débogage. Vérifiez la console de votre backend pour voir les champs de formulaire reçus.
-  console.log('Champs de texte reçus:', req.body);
-  console.log('Fichiers reçus:', req.files);
-
   if (req.user.role !== 'admin') {
     if (req.files.profilePicture && req.files.profilePicture[0]) await fs.unlink(req.files.profilePicture[0].path).catch(e => console.error("Erreur de suppression du fichier temp:", e));
+    if (req.files.cv && req.files.cv[0]) await fs.unlink(req.files.cv[0].path).catch(e => console.error("Erreur de suppression du fichier temp:", e));
     return res.status(403).json({ error: 'Accès interdit' });
   }
 
-  const profilePictureFile = req.files.profilePicture ? req.files.profilePicture[0] : null;
+  const {
+    firstName, lastName, sex, location, address, contact,
+    profession, employmentStructure, companyOrProject, activities, role,
+    is_new_member, last_annual_inscription_date, has_paid_adhesion,
+    social_contribution_status, tontine_status, ag_absence_count
+  } = req.body;
 
-  if (profilePictureFile && !profilePictureFile.path) {
-    console.error('Erreur: Fichier fourni mais Multer n\'a pas pu le traiter correctement.');
-    return res.status(400).json({ error: 'Erreur de traitement du fichier par le serveur.' });
-  }
+  let photo_url = null;
+  let public_id = null;
+  let cv_url = null;
+  let cv_public_id = null;
 
   try {
-    // Récupération des champs du corps de la requête, y compris les nouveaux champs de statut financier
-    const {
-      firstName, lastName, sex, location, address, contact,
-      profession, employmentStructure, companyOrProject, activities, role,
-      is_new_member, last_annual_inscription_date, has_paid_adhesion,
-      social_contribution_status, tontine_status, ag_absence_count
-    } = req.body;
+    const profilePictureFile = req.files.profilePicture ? req.files.profilePicture[0] : null;
+    const cvFile = req.files.cv ? req.files.cv[0] : null;
 
-    let photo_url = null;
-    let public_id = null;
-
-    // Si un fichier a été uploadé, le traiter avec Cloudinary
     if (profilePictureFile) {
-      console.log('Fichier de profil reçu par Multer:', profilePictureFile);
       const result = await cloudinary.uploader.upload(profilePictureFile.path, {
         folder: 'aifasa_members_profiles',
         resource_type: 'image'
       });
-      console.log('Résultat de l\'upload Cloudinary pour le profil:', result);
       photo_url = result.secure_url;
       public_id = result.public_id;
     }
 
-    // Création du membre en base de données avec tous les champs
+    if (cvFile) {
+      const result = await cloudinary.uploader.upload(cvFile.path, {
+        folder: 'aifasa_members_cvs',
+        resource_type: 'raw' // Important pour les documents
+      });
+      cv_url = result.secure_url;
+      cv_public_id = result.public_id;
+    }
+
     const member = await Member.create({
       firstName, lastName, sex, location, address, contact,
       profession, employmentStructure, companyOrProject, activities, role,
       photo_url,
       public_id,
-      is_new_member: is_new_member === 'true', // Multer renvoie des chaînes pour les booléens
+      cv_url,
+      cv_public_id,
+      is_new_member: is_new_member === 'true',
       last_annual_inscription_date: last_annual_inscription_date || null,
-      has_paid_adhesion: has_paid_adhesion === 'true', // Multer renvoie des chaînes
-      social_contribution_status: JSON.parse(social_contribution_status || '{}'),
-      tontine_status: JSON.parse(tontine_status || '{}'),
+      has_paid_adhesion: has_paid_adhesion === 'true',
+      social_contribution_status: social_contribution_status ? JSON.parse(social_contribution_status) : {},
+      tontine_status: tontine_status ? JSON.parse(tontine_status) : {},
       ag_absence_count: parseInt(ag_absence_count, 10) || 0
     });
-    console.log('Membre créé en base de données:', member);
 
     res.status(201).json(member);
 
   } catch (error) {
     console.error('ERREUR DÉTAILLÉE lors de l\'ajout du membre:', error.message);
-    console.error('Stack Trace:', error.stack);
     res.status(500).json({ error: 'Erreur serveur lors de l\'ajout du membre', details: error.message });
   } finally {
+    const profilePictureFile = req.files.profilePicture ? req.files.profilePicture[0] : null;
+    const cvFile = req.files.cv ? req.files.cv[0] : null;
     if (profilePictureFile) {
       await fs.unlink(profilePictureFile.path).catch(e => console.error("Erreur lors de la suppression du fichier temporaire:", e));
+    }
+    if (cvFile) {
+      await fs.unlink(cvFile.path).catch(e => console.error("Erreur lors de la suppression du fichier temporaire:", e));
     }
   }
 });
 
-// Route pour mettre à jour un membre (admin seulement, avec gestion de la photo)
+// Route pour mettre à jour un membre
 router.put('/:id', authenticateToken, cpUpload, async (req, res) => {
-  // Logs pour le débogage. Vérifiez la console de votre backend pour voir les champs de formulaire reçus.
-  console.log('Champs de texte reçus:', req.body);
-  console.log('Fichiers reçus:', req.files);
-
   if (req.user.role !== 'admin') {
     if (req.files.profilePicture && req.files.profilePicture[0]) await fs.unlink(req.files.profilePicture[0].path).catch(e => console.error("Erreur de suppression du fichier temp:", e));
+    if (req.files.cv && req.files.cv[0]) await fs.unlink(req.files.cv[0].path).catch(e => console.error("Erreur de suppression du fichier temp:", e));
     return res.status(403).json({ error: 'Accès interdit' });
   }
 
-  const profilePictureFile = req.files.profilePicture ? req.files.profilePicture[0] : null;
+  const memberId = req.params.id;
+  const {
+    firstName, lastName, sex, location, address, contact,
+    profession, employmentStructure, companyOrProject, activities, role,
+    photo_url: existing_photo_url, public_id: existing_public_id,
+    cv_url: existing_cv_url, cv_public_id: existing_cv_public_id,
+    is_new_member, last_annual_inscription_date, has_paid_adhesion,
+    social_contribution_status, tontine_status, ag_absence_count
+  } = req.body;
 
-  if (profilePictureFile && !profilePictureFile.path) {
-    console.error('Erreur: Fichier fourni mais Multer n\'a pas pu le traiter correctement.');
-    return res.status(400).json({ error: 'Erreur de traitement du fichier par le serveur.' });
-  }
+  let photo_url = existing_photo_url;
+  let public_id = existing_public_id;
+  let cv_url = existing_cv_url;
+  let cv_public_id = existing_cv_public_id;
 
   try {
-    const memberId = req.params.id;
-    // Récupération de tous les champs du corps de la requête, y compris les nouveaux
-    const {
-      firstName, lastName, sex, location, address, contact,
-      profession, employmentStructure, companyOrProject, activities, role,
-      photo_url: existing_photo_url, public_id: existing_public_id,
-      is_new_member, last_annual_inscription_date, has_paid_adhesion,
-      social_contribution_status, tontine_status, ag_absence_count
-    } = req.body;
+    const profilePictureFile = req.files.profilePicture ? req.files.profilePicture[0] : null;
+    const cvFile = req.files.cv ? req.files.cv[0] : null;
 
-    let photo_url = existing_photo_url;
-    let public_id = existing_public_id;
-
-    // Si un nouveau fichier est uploadé, le traiter avec Cloudinary
     if (profilePictureFile) {
       if (existing_public_id) {
         await cloudinary.uploader.destroy(existing_public_id).catch(e => console.error("Erreur suppression ancienne photo Cloudinary:", e));
@@ -163,60 +162,78 @@ router.put('/:id', authenticateToken, cpUpload, async (req, res) => {
       photo_url = result.secure_url;
       public_id = result.public_id;
     }
+    if (cvFile) {
+      if (existing_cv_public_id) {
+        await cloudinary.uploader.destroy(existing_cv_public_id, { resource_type: 'raw' }).catch(e => console.error("Erreur suppression ancien CV Cloudinary:", e));
+      }
+      const result = await cloudinary.uploader.upload(cvFile.path, {
+        folder: 'aifasa_members_cvs',
+        resource_type: 'raw'
+      });
+      cv_url = result.secure_url;
+      cv_public_id = result.public_id;
+    }
 
-    // Mise à jour du membre en base de données avec tous les champs
     const member = await Member.update(memberId, {
       firstName, lastName, sex, location, address, contact,
       profession, employmentStructure, companyOrProject, activities, role,
       photo_url,
       public_id,
+      cv_url,
+      cv_public_id,
       is_new_member: is_new_member === 'true',
       last_annual_inscription_date: last_annual_inscription_date || null,
       has_paid_adhesion: has_paid_adhesion === 'true',
-      social_contribution_status: JSON.parse(social_contribution_status || '{}'),
-      tontine_status: JSON.parse(tontine_status || '{}'),
+      social_contribution_status: social_contribution_status ? JSON.parse(social_contribution_status) : {},
+      tontine_status: tontine_status ? JSON.parse(tontine_status) : {},
       ag_absence_count: parseInt(ag_absence_count, 10) || 0
     });
 
     if (!member) return res.status(404).json({ error: 'Membre non trouvé' });
-    console.log('Membre mis à jour en base de données:', member);
     res.json(member);
 
   } catch (error) {
     console.error('ERREUR DÉTAILLÉE lors de la mise à jour du membre:', error.message);
-    console.error('Stack Trace:', error.stack);
     res.status(500).json({ error: 'Erreur serveur lors de la mise à jour du membre', details: error.message });
   } finally {
+    const profilePictureFile = req.files.profilePicture ? req.files.profilePicture[0] : null;
+    const cvFile = req.files.cv ? req.files.cv[0] : null;
     if (profilePictureFile) {
       await fs.unlink(profilePictureFile.path).catch(e => console.error("Erreur lors de la suppression du fichier temporaire:", e));
+    }
+    if (cvFile) {
+      await fs.unlink(cvFile.path).catch(e => console.error("Erreur lors de la suppression du fichier temporaire:", e));
     }
   }
 });
 
 // Route pour supprimer un membre (admin seulement)
 router.delete('/:id', authenticateToken, async (req, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Accès interdit' });
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Accès interdit' });
+  }
 
   try {
     const memberId = req.params.id;
-    const member = await Member.findById(memberId);
+    const member = await Member.findByPk(memberId); // Utilisation de findByPk pour récupérer le membre
 
-    if (!member) return res.status(404).json({ error: 'Membre non trouvé' });
-
-    if (member.public_id) {
-      console.log('Tentative de suppression de Cloudinary pour public_id:', member.public_id);
-      await cloudinary.uploader.destroy(member.public_id);
-      console.log('Photo supprimée de Cloudinary:', member.public_id);
+    if (!member) {
+      return res.status(404).json({ error: 'Membre non trouvé' });
     }
 
-    await Member.delete(memberId);
-    console.log('Membre supprimé de la base de données:', memberId);
+    // Supprimer les fichiers de Cloudinary si les IDs publics existent
+    if (member.public_id) {
+      await cloudinary.uploader.destroy(member.public_id);
+    }
+    if (member.cv_public_id) {
+      await cloudinary.uploader.destroy(member.cv_public_id, { resource_type: 'raw' });
+    }
 
+    await member.destroy(); // Utilisation de la méthode destroy pour supprimer le membre
     res.status(204).send();
 
   } catch (error) {
     console.error('Erreur lors de la suppression du membre:', error.message);
-    console.error('Stack Trace:', error.stack);
     res.status(500).json({ error: 'Erreur serveur lors de la suppression du membre', details: error.message });
   }
 });
