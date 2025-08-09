@@ -12,32 +12,8 @@ const fs = require('fs').promises;
 const upload = multer({ dest: 'uploads/' });
 
 // Définition des champs pour Multer
-const cpUpload = upload.fields([
-  { name: 'profilePicture', maxCount: 1 },
-  { name: 'cv', maxCount: 1 }, // Ajout du champ pour le CV
-  { name: 'firstName' },
-  { name: 'lastName' },
-  { name: 'sex' },
-  { name: 'location' },
-  { name: 'address' },
-  { name: 'contact' },
-  { name: 'profession' },
-  { name: 'employmentStructure' },
-  { name: 'companyOrProject' },
-  { name: 'activities' },
-  { name: 'role' },
-  { name: 'photo_url' },
-  { name: 'public_id' },
-  { name: 'cv_url' }, // Ajout pour la mise à jour
-  { name: 'cv_public_id' }, // Ajout pour la mise à jour
-  // Champs de statut financier mis à jour
-  { name: 'is_new_member' },
-  { name: 'last_annual_inscription_date' },
-  { name: 'has_paid_adhesion' },
-  { name: 'social_contribution_status' },
-  { name: 'tontine_status' },
-  { name: 'ag_absence_count' }
-]);
+// Changement pour utiliser upload.any() afin d'accepter tous les champs
+const cpUpload = upload.any();
 
 // Route pour récupérer tous les membres
 router.get('/', async (req, res) => {
@@ -71,8 +47,8 @@ router.post('/', authenticateToken, cpUpload, async (req, res) => {
   let cv_public_id = null;
 
   try {
-    const profilePictureFile = req.files.profilePicture ? req.files.profilePicture[0] : null;
-    const cvFile = req.files.cv ? req.files.cv[0] : null;
+    const profilePictureFile = req.files.find(file => file.fieldname === 'profilePicture');
+    const cvFile = req.files.find(file => file.fieldname === 'cv');
 
     if (profilePictureFile) {
       const result = await cloudinary.uploader.upload(profilePictureFile.path, {
@@ -113,13 +89,8 @@ router.post('/', authenticateToken, cpUpload, async (req, res) => {
     console.error('ERREUR DÉTAILLÉE lors de l\'ajout du membre:', error.message);
     res.status(500).json({ error: 'Erreur serveur lors de l\'ajout du membre', details: error.message });
   } finally {
-    const profilePictureFile = req.files.profilePicture ? req.files.profilePicture[0] : null;
-    const cvFile = req.files.cv ? req.files.cv[0] : null;
-    if (profilePictureFile) {
-      await fs.unlink(profilePictureFile.path).catch(e => console.error("Erreur lors de la suppression du fichier temporaire:", e));
-    }
-    if (cvFile) {
-      await fs.unlink(cvFile.path).catch(e => console.error("Erreur lors de la suppression du fichier temporaire:", e));
+    if (req.files) {
+      await Promise.all(req.files.map(file => fs.unlink(file.path).catch(e => console.error("Erreur lors de la suppression du fichier temporaire:", e))));
     }
   }
 });
@@ -127,8 +98,9 @@ router.post('/', authenticateToken, cpUpload, async (req, res) => {
 // Route pour mettre à jour un membre
 router.put('/:id', authenticateToken, cpUpload, async (req, res) => {
   if (req.user.role !== 'admin') {
-    if (req.files.profilePicture && req.files.profilePicture[0]) await fs.unlink(req.files.profilePicture[0].path).catch(e => console.error("Erreur de suppression du fichier temp:", e));
-    if (req.files.cv && req.files.cv[0]) await fs.unlink(req.files.cv[0].path).catch(e => console.error("Erreur de suppression du fichier temp:", e));
+    if (req.files) {
+      await Promise.all(req.files.map(file => fs.unlink(file.path).catch(e => console.error("Erreur de suppression du fichier temp:", e))));
+    }
     return res.status(403).json({ error: 'Accès interdit' });
   }
 
@@ -148,8 +120,8 @@ router.put('/:id', authenticateToken, cpUpload, async (req, res) => {
   let cv_public_id = existing_cv_public_id;
 
   try {
-    const profilePictureFile = req.files.profilePicture ? req.files.profilePicture[0] : null;
-    const cvFile = req.files.cv ? req.files.cv[0] : null;
+    const profilePictureFile = req.files.find(file => file.fieldname === 'profilePicture');
+    const cvFile = req.files.find(file => file.fieldname === 'cv');
 
     if (profilePictureFile) {
       if (existing_public_id) {
@@ -196,13 +168,8 @@ router.put('/:id', authenticateToken, cpUpload, async (req, res) => {
     console.error('ERREUR DÉTAILLÉE lors de la mise à jour du membre:', error.message);
     res.status(500).json({ error: 'Erreur serveur lors de la mise à jour du membre', details: error.message });
   } finally {
-    const profilePictureFile = req.files.profilePicture ? req.files.profilePicture[0] : null;
-    const cvFile = req.files.cv ? req.files.cv[0] : null;
-    if (profilePictureFile) {
-      await fs.unlink(profilePictureFile.path).catch(e => console.error("Erreur lors de la suppression du fichier temporaire:", e));
-    }
-    if (cvFile) {
-      await fs.unlink(cvFile.path).catch(e => console.error("Erreur lors de la suppression du fichier temporaire:", e));
+    if (req.files) {
+      await Promise.all(req.files.map(file => fs.unlink(file.path).catch(e => console.error("Erreur lors de la suppression du fichier temporaire:", e))));
     }
   }
 });
