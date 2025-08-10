@@ -65,6 +65,11 @@ router.post(
     let cv_public_id = null;
 
     try {
+      // Validation du fichier CV
+      if (cvFile && cvFile.mimetype !== 'application/pdf') {
+        throw new Error('Le CV doit être un fichier PDF.');
+      }
+
       if (profilePictureFile) {
         const result = await cloudinary.uploader.upload(profilePictureFile.path, {
           folder: 'aifasa_members_profiles',
@@ -77,7 +82,9 @@ router.post(
       if (cvFile) {
         const result = await cloudinary.uploader.upload(cvFile.path, {
           folder: 'aifasa_members_cvs',
-          resource_type: 'raw'
+          resource_type: 'raw',
+          // Ajoute l'extension .pdf au public_id pour une meilleure gestion
+          public_id: `${cvFile.filename}.pdf`
         });
         cv_url = result.secure_url;
         cv_public_id = result.public_id;
@@ -139,6 +146,11 @@ router.put(
       const profilePictureFile = req.files.profilePicture ? req.files.profilePicture[0] : null;
       const cvFile = req.files.cv ? req.files.cv[0] : null;
 
+      // Validation du fichier CV
+      if (cvFile && cvFile.mimetype !== 'application/pdf') {
+        throw new Error('Le CV doit être un fichier PDF.');
+      }
+
       if (profilePictureFile) {
         if (existing_public_id) {
           await cloudinary.uploader.destroy(existing_public_id).catch(e => console.error("Erreur suppression ancienne photo Cloudinary:", e));
@@ -157,7 +169,9 @@ router.put(
         }
         const result = await cloudinary.uploader.upload(cvFile.path, {
           folder: 'aifasa_members_cvs',
-          resource_type: 'raw'
+          resource_type: 'raw',
+          // Ajoute l'extension .pdf au public_id pour une meilleure gestion
+          public_id: `${cvFile.filename}.pdf`
         });
         cv_url = result.secure_url;
         cv_public_id = result.public_id;
@@ -197,7 +211,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 
   try {
     const memberId = req.params.id;
-    const member = await Member.findByPk(memberId);
+    const member = await Member.findById(memberId);
 
     if (!member) {
       return res.status(404).json({ error: 'Membre non trouvé' });
@@ -211,7 +225,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
       await cloudinary.uploader.destroy(member.cv_public_id, { resource_type: 'raw' });
     }
 
-    await member.destroy();
+    await Member.delete(memberId);
     res.status(204).send();
   } catch (error) {
     console.error('Erreur lors de la suppression du membre:', error.message);
