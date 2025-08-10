@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const Member = require('../models/Member'); // Assurez-vous que ce chemin est correct
+const Member = require('../models/Member');
 const authenticateToken = require('../middleware/auth');
 const cloudinary = require('../config/cloudinary');
 const multer = require('multer');
@@ -8,6 +8,20 @@ const fs = require('fs').promises;
 
 // Configuration de Multer pour le stockage temporaire
 const upload = multer({ dest: 'uploads/' });
+
+/**
+ * Nettoie les fichiers temporaires après l'upload, qu'il y ait une erreur ou non.
+ * @param {Array<object>} files - Les fichiers à supprimer.
+ */
+const cleanUpTempFiles = async (files) => {
+  if (files) {
+    const filesToClean = [
+      ...(files.profilePicture || []),
+      ...(files.cv || [])
+    ];
+    await Promise.all(filesToClean.map(file => fs.unlink(file.path).catch(e => console.error("Erreur lors de la suppression du fichier temporaire:", e))));
+  }
+};
 
 // Route pour récupérer tous les membres
 router.get('/', async (req, res) => {
@@ -29,14 +43,9 @@ router.post(
     { name: 'cv', maxCount: 1 }
   ]),
   async (req, res) => {
+    // Nettoyer les fichiers temporaires en cas d'accès interdit
     if (req.user.role !== 'admin') {
-      if (req.files) {
-        const filesToClean = [
-          ...(req.files.profilePicture || []),
-          ...(req.files.cv || [])
-        ];
-        await Promise.all(filesToClean.map(file => fs.unlink(file.path).catch(e => console.error("Erreur lors de la suppression du fichier temporaire:", e))));
-      }
+      await cleanUpTempFiles(req.files);
       return res.status(403).json({ error: 'Accès interdit' });
     }
 
@@ -91,13 +100,7 @@ router.post(
       console.error('Erreur lors de l\'ajout du membre:', error.message);
       res.status(500).json({ error: 'Erreur serveur lors de l\'ajout du membre', details: error.message });
     } finally {
-      if (req.files) {
-        const filesToClean = [
-          ...(req.files.profilePicture || []),
-          ...(req.files.cv || [])
-        ];
-        await Promise.all(filesToClean.map(file => fs.unlink(file.path).catch(e => console.error("Erreur lors de la suppression du fichier temporaire:", e))));
-      }
+      await cleanUpTempFiles(req.files);
     }
   }
 );
@@ -111,14 +114,9 @@ router.put(
     { name: 'cv', maxCount: 1 }
   ]),
   async (req, res) => {
+    // Nettoyer les fichiers temporaires en cas d'accès interdit
     if (req.user.role !== 'admin') {
-      if (req.files) {
-        const filesToClean = [
-          ...(req.files.profilePicture || []),
-          ...(req.files.cv || [])
-        ];
-        await Promise.all(filesToClean.map(file => fs.unlink(file.path).catch(e => console.error("Erreur lors de la suppression du fichier temporaire:", e))));
-      }
+      await cleanUpTempFiles(req.files);
       return res.status(403).json({ error: 'Accès interdit' });
     }
 
@@ -186,13 +184,7 @@ router.put(
       console.error('Erreur lors de la mise à jour du membre:', error.message);
       res.status(500).json({ error: 'Erreur serveur lors de la mise à jour du membre', details: error.message });
     } finally {
-      if (req.files) {
-        const filesToClean = [
-          ...(req.files.profilePicture || []),
-          ...(req.files.cv || [])
-        ];
-        await Promise.all(filesToClean.map(file => fs.unlink(file.path).catch(e => console.error("Erreur lors de la suppression du fichier temporaire:", e))));
-      }
+      await cleanUpTempFiles(req.files);
     }
   }
 );
