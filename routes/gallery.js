@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-// Changed model name to be more generic
+// Importation du modèle personnalisé
 const GalleryMedia = require('../models/GalleryMedia');
 const authenticateToken = require('../middleware/auth');
 const cloudinary = require('../config/cloudinary');
@@ -86,20 +86,21 @@ router.delete('/:id', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'ID de média invalide.' });
     }
 
-    // First, retrieve the media from the database to get its public_id
-    const mediaToDelete = await GalleryMedia.findByPk(mediaId);
+    // First, retrieve the media from the database using your custom method
+    const mediaToDelete = await GalleryMedia.findById(mediaId);
 
     if (!mediaToDelete) {
       return res.status(404).json({ error: 'Média non trouvé dans la base de données.' });
     }
 
-    // Attempt to delete the media from the database
-    // Assuming your model has a destroy method
-    await mediaToDelete.destroy();
+    // Attempt to delete the media from the database using your custom method
+    await GalleryMedia.delete(mediaId);
 
     // If successfully deleted from DB, attempt to delete from Cloudinary
     if (mediaToDelete.public_id) {
-      await cloudinary.uploader.destroy(mediaToDelete.public_id);
+      // Determine resource type for Cloudinary deletion
+      const resourceType = mediaToDelete.file_type && mediaToDelete.file_type.startsWith('video') ? 'video' : 'image';
+      await cloudinary.uploader.destroy(mediaToDelete.public_id, { resource_type: resourceType });
     }
 
     res.status(200).json({ message: 'Média supprimé avec succès', deletedMedia: mediaToDelete });
