@@ -1,118 +1,111 @@
 const express = require('express');
 const router = express.Router();
-const GalleryImage = require('../models/GalleryImage'); // Assuming this is your model
+// Changed model name to be more generic
+const GalleryMedia = require('../models/GalleryMedia');
 const authenticateToken = require('../middleware/auth');
 const cloudinary = require('../config/cloudinary');
 const multer = require('multer');
-const fs = require('fs').promises; // Pour supprimer le fichier temporaire de Multer
+const fs = require('fs').promises;
 
 // Configure Multer for file uploads (temporary storage)
 const upload = multer({ dest: 'uploads/' });
 
-// GET all gallery images
+// GET all gallery media
 // Route: GET /api/gallery
 router.get('/', async (req, res) => {
   try {
-    console.log('Attempting to fetch gallery images...'); // Log start of operation
-    const images = await GalleryImage.findAll(); // Attempt to find all images
-    console.log('Successfully fetched gallery images. Number of images:', images.length); // Log success
-    res.json(images); // Send images as JSON response
+    const media = await GalleryMedia.findAll();
+    res.json(media);
   } catch (error) {
-    // Crucial: Log the full error object to the server console
-    console.error('Error fetching gallery images:', error);
-    // Send a more specific error message to the client
-    res.status(500).json({ error: 'Erreur serveur lors de la récupération des images de la galerie', details: error.message });
+    console.error('Error fetching gallery media:', error);
+    res.status(500).json({ error: 'Erreur serveur lors de la récupération des médias de la galerie', details: error.message });
   }
 });
 
-// POST a new gallery image (admin only, with file upload)
+// POST a new gallery media (admin only, with file upload)
 // Route: POST /api/gallery
-router.post('/', authenticateToken, upload.single('image'), async (req, res) => {
+router.post('/', authenticateToken, upload.single('file'), async (req, res) => {
   // Check if the user has admin role
   if (req.user.role !== 'admin') {
-    console.warn(`Tentative d'accès non autorisé à /api/gallery par l'utilisateur: ${req.user ? req.user.id : 'Non authentifié'} (Rôle: ${req.user ? req.user.role : 'N/A'})`);
-    // Clean up temp file if unauthorized
     if (req.file) {
       await fs.unlink(req.file.path).catch(e => console.error("Erreur de suppression du fichier temp (403):", e));
     }
-    return res.status(403).json({ error: 'Accès interdit. Seuls les administrateurs peuvent ajouter des images.' });
+    return res.status(403).json({ error: 'Accès interdit. Seuls les administrateurs peuvent ajouter des médias.' });
   }
 
   // Ensure a file was uploaded
   if (!req.file) {
-    return res.status(400).json({ error: 'Aucun fichier image n\'a été fourni.' });
+    return res.status(400).json({ error: 'Aucun fichier média n\'a été fourni.' });
   }
 
   try {
     const { title, category } = req.body;
 
-    // Upload the image to Cloudinary
+    // Determine resource type for Cloudinary based on file MIME type
+    const resourceType = req.file.mimetype.startsWith('video') ? 'video' : 'image';
+
+    // Upload the file to Cloudinary
     const result = await cloudinary.uploader.upload(req.file.path, {
-      folder: 'aifasa_gallery', // Dossier spécifique pour la galerie
-      resource_type: 'image' // S'assurer que c'est traité comme une image
+      folder: 'aifasa_gallery', // Specific folder for the gallery
+      resource_type: resourceType // Dynamic resource type
     });
 
-    // Create a new entry in your database for the image
-    // Ensure your GalleryImage model accepts 'public_id'
-    const image = await GalleryImage.create({
+    // Create a new entry in your database
+    const media = await GalleryMedia.create({
       title,
       category,
-      image_url: result.secure_url, // Store the Cloudinary URL
+      file_url: result.secure_url, // Store the Cloudinary URL
+      file_type: req.file.mimetype, // Store the file MIME type (e.g., 'image/jpeg', 'video/mp4')
       public_id: result.public_id, // Store the public_id for future deletion from Cloudinary
     });
 
-    res.status(201).json(image); // Respond with the created image and 201 status
+    res.status(201).json(media); // Respond with the created media and 201 status
   } catch (error) {
-    console.error('Error during image upload and creation:', error);
-    res.status(500).json({ error: 'Erreur lors de l\'upload ou de l\'enregistrement de l\'image.', details: error.message });
+    console.error('Error during media upload and creation:', error);
+    res.status(500).json({ error: 'Erreur lors de l\'upload ou de l\'enregistrement du média.', details: error.message });
   } finally {
-    // Supprimer le fichier temporaire de Multer
+    // Delete the temporary file from Multer
     if (req.file) {
       await fs.unlink(req.file.path).catch(e => console.error("Erreur lors de la suppression du fichier temporaire:", e));
     }
   }
 });
 
-// DELETE a gallery image by ID (admin only)
+// DELETE a gallery media by ID (admin only)
 // Route: DELETE /api/gallery/:id
 router.delete('/:id', authenticateToken, async (req, res) => {
   // Check if the user has admin role
   if (req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Accès interdit. Seuls les administrateurs peuvent supprimer des images.' });
+    return res.status(403).json({ error: 'Accès interdit. Seuls les administrateurs peuvent supprimer des médias.' });
   }
 
   try {
-    // Convertir l'ID en entier pour s'assurer qu'il est du bon type pour la DB
-    const imageId = parseInt(req.params.id, 10);
+    const mediaId = parseInt(req.params.id, 10);
 
-    // Vérifier si l'ID est un nombre valide
-    if (isNaN(imageId)) {
-      return res.status(400).json({ error: 'ID d\'image invalide.' });
+    if (isNaN(mediaId)) {
+      return res.status(400).json({ error: 'ID de média invalide.' });
     }
 
-    // First, retrieve the image from the database to get its public_id
-    const imageToDelete = await GalleryImage.findById(imageId);
+    // First, retrieve the media from the database to get its public_id
+    const mediaToDelete = await GalleryMedia.findByPk(mediaId);
 
-    if (!imageToDelete) {
-      return res.status(404).json({ error: 'Image non trouvée dans la base de données.' });
+    if (!mediaToDelete) {
+      return res.status(404).json({ error: 'Média non trouvé dans la base de données.' });
     }
 
-    // Attempt to delete the image from the database
-    const deletedImage = await GalleryImage.delete(imageId);
+    // Attempt to delete the media from the database
+    // Assuming your model has a destroy method
+    await mediaToDelete.destroy();
 
     // If successfully deleted from DB, attempt to delete from Cloudinary
-    if (deletedImage && deletedImage.public_id) {
-      console.log('Attempting to delete image from Cloudinary with public_id:', deletedImage.public_id);
-      await cloudinary.uploader.destroy(deletedImage.public_id);
-      console.log('Image deleted from Cloudinary:', deletedImage.public_id);
-    } else if (deletedImage && !deletedImage.public_id) {
-      console.warn('Image deleted from DB but no public_id found for Cloudinary deletion.');
+    if (mediaToDelete.public_id) {
+      await cloudinary.uploader.destroy(mediaToDelete.public_id);
     }
 
-    res.status(200).json({ message: 'Image supprimée avec succès', deletedImage });
+    res.status(200).json({ message: 'Média supprimé avec succès', deletedMedia: mediaToDelete });
   } catch (error) {
-    console.error('Error deleting gallery image:', error);
-    res.status(500).json({ error: 'Erreur serveur lors de la suppression de l\'image.', details: error.message });
+    console.error('Error deleting gallery media:', error);
+    res.status(500).json({ error: 'Erreur serveur lors de la suppression du média.', details: error.message });
   }
 });
 
