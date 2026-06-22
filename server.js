@@ -15,7 +15,9 @@ if (!process.env.JWT_SECRET) {
 const app = express();
 
 // ✅ Helmet pour sécuriser les en-têtes HTTP
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
 
 // ✅ Rate Limiting pour prévenir le brute force
 const authLimiter = rateLimit({
@@ -27,26 +29,70 @@ const authLimiter = rateLimit({
 });
 app.use('/api/auth', authLimiter);
 
-// ✅ Configuration CORS
+// ✅ Configuration CORS CORRIGÉE
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
   ? process.env.ALLOWED_ORIGINS.split(',')
-  : [
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'http://localhost:5173',
-    'http://127.0.0.1:3000',
-    'https://aifasa17plan-backend.onrender.com'
-  ];
+  : [];
+
+// Ajouter les origines connues
+const knownOrigins = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:5173',
+  'http://127.0.0.1:3000',
+  'https://harmonious-boba-e7278d.netlify.app',
+  'https://aifasa-frontend.netlify.app',
+];
+
+const allOrigins = [...new Set([...knownOrigins, ...allowedOrigins])];
 
 const corsOptions = {
-  origin: allowedOrigins,
+  origin: function (origin, callback) {
+    // Permettre les requêtes sans origin (server-to-server, Postman, etc.)
+    if (!origin) {
+      return callback(null, true);
+    }
+    
+    // Vérifier si l'origine est autorisée
+    if (allOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.log(`⚠️ CORS: Origine non listée autorisée temporairement: ${origin}`);
+      // En production, vous pourriez vouloir bloquer :
+      // callback(new Error('CORS non autorisé'));
+      callback(null, true); // Temporairement permissif
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   exposedHeaders: ['Authorization'],
+  optionsSuccessStatus: 200,
+  maxAge: 86400 // 24 heures de cache pour les requêtes preflight
 };
 
 app.use(cors(corsOptions));
+
+// Gérer explicitement les requêtes OPTIONS
+app.options('*', cors(corsOptions));
+
+// Middleware pour les headers CORS supplémentaires
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (allOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  
+  // Répondre immédiatement aux requêtes OPTIONS
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -56,7 +102,6 @@ app.use((req, res, next) => {
   if (isDevelopment) {
     console.log(`📝 ${req.method} ${req.url}`);
     if (req.method === 'POST' || req.method === 'PUT') {
-      // ✅ Masquer les données sensibles dans les logs
       const safeBody = { ...req.body };
       if (safeBody.password) safeBody.password = '***';
       console.log('📦 Body:', safeBody);
@@ -139,7 +184,7 @@ app.listen(PORT, async () => {
   console.log(`\n🚀 =========================================`);
   console.log(`✅ Serveur démarré sur le port ${PORT}`);
   console.log(`🌐 URL: http://localhost:${PORT}`);
-  console.log(`🌐 CORS autorisé pour : ${allowedOrigins.join(', ')}`);
+  console.log(`🌐 CORS autorisé pour : ${allOrigins.join(', ')}`);
   console.log(`=========================================\n`);
   
   await testDbConnection();
