@@ -16,7 +16,32 @@ const app = express();
 
 // ✅ Helmet pour sécuriser les en-têtes HTTP
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+      imgSrc: ["'self'", 'data:', 'https:', 'blob:'],
+      connectSrc: ["'self'", 'https://aifasa-backend.onrender.com', 'https://*.onrender.com'],
+      mediaSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"], // ← Remplace X-Frame-Options
+    }
+  },
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  frameguard: { action: 'deny' }, // ← X-Frame-Options: DENY
+  xssFilter: true,                // ← X-XSS-Protection
+  noSniff: true,                  // ← X-Content-Type-Options
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' }, // ← Referrer-Policy
+  permissionsPolicy: {            // ← Permissions-Policy
+    features: {
+      camera: [],
+      microphone: [],
+      geolocation: [],
+      payment: []
+    }
+  }
 }));
 
 // ✅ Rate Limiting pour prévenir le brute force
@@ -58,8 +83,6 @@ const corsOptions = {
       callback(null, true);
     } else {
       console.log(`⚠️ CORS: Origine non listée autorisée temporairement: ${origin}`);
-      // En production, vous pourriez vouloir bloquer :
-      // callback(new Error('CORS non autorisé'));
       callback(null, true); // Temporairement permissif
     }
   },
@@ -185,6 +208,7 @@ app.listen(PORT, async () => {
   console.log(`✅ Serveur démarré sur le port ${PORT}`);
   console.log(`🌐 URL: http://localhost:${PORT}`);
   console.log(`🌐 CORS autorisé pour : ${allOrigins.join(', ')}`);
+  console.log(`🛡️  Sécurité: Helmet activé (CSP, X-Frame-Options, XSS, noSniff, Referrer, Permissions)`);
   console.log(`=========================================\n`);
   
   await testDbConnection();
