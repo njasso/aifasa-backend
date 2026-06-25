@@ -1,11 +1,10 @@
-// models/Job.js - COMPLET AVEC UPDATE
+// models/Job.js - COMPLET
 const { pool } = require('../config/db');
 
 class Job {
   static async findAll() {
     const result = await pool.query(
-      'SELECT * FROM jobs WHERE status = $1 ORDER BY created_at DESC',
-      ['active']
+      "SELECT * FROM jobs WHERE status = 'active' ORDER BY created_at DESC"
     );
     return result.rows;
   }
@@ -25,19 +24,33 @@ class Job {
     return result.rows[0];
   }
 
-  // ✅ AJOUTÉ - Mise à jour d'une offre
   static async update(id, data) {
-    const { title, type, organization, location, description, contact_email, deadline } = data;
+    const fields = [];
+    const values = [];
+    let paramCount = 0;
+
+    if (data.title !== undefined) { paramCount++; fields.push(`title=$${paramCount}`); values.push(data.title); }
+    if (data.type !== undefined) { paramCount++; fields.push(`type=$${paramCount}`); values.push(data.type); }
+    if (data.organization !== undefined) { paramCount++; fields.push(`organization=$${paramCount}`); values.push(data.organization); }
+    if (data.location !== undefined) { paramCount++; fields.push(`location=$${paramCount}`); values.push(data.location); }
+    if (data.description !== undefined) { paramCount++; fields.push(`description=$${paramCount}`); values.push(data.description); }
+    if (data.contact_email !== undefined) { paramCount++; fields.push(`contact_email=$${paramCount}`); values.push(data.contact_email); }
+    if (data.deadline !== undefined) { paramCount++; fields.push(`deadline=$${paramCount}`); values.push(data.deadline); }
+
+    if (fields.length === 0) return null;
+
+    paramCount++;
+    values.push(id);
+
     const result = await pool.query(
-      `UPDATE jobs SET title=$1, type=$2, organization=$3, location=$4, description=$5, contact_email=$6, deadline=$7 
-       WHERE id=$8 RETURNING *`,
-      [title, type, organization, location, description, contact_email, deadline, id]
+      `UPDATE jobs SET ${fields.join(', ')} WHERE id=$${paramCount} RETURNING *`,
+      values
     );
     return result.rows[0];
   }
 
   static async delete(id) {
-    await pool.query('UPDATE jobs SET status = $1 WHERE id = $2', ['inactive', id]);
+    await pool.query("UPDATE jobs SET status = 'inactive' WHERE id = $1", [id]);
   }
 }
 
