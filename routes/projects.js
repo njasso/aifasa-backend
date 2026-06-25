@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const Project = require('../models/Project');
-const { authenticateToken, isAdmin } = require('../middleware/auth'); // ✅ CORRIGÉ
+const { authenticateToken, isAdmin } = require('../middleware/auth');
 
 // ============ ROUTES PUBLIQUES ============
 
@@ -45,7 +45,9 @@ router.post('/', authenticateToken, isAdmin, async (req, res) => {
       investmentDetails,
       financialResults,
       projectResponsibles,
-      followUps
+      followUps,
+      status,
+      startDate
     } = req.body;
 
     // Validation
@@ -64,7 +66,9 @@ router.post('/', authenticateToken, isAdmin, async (req, res) => {
       investmentDetails: investmentDetails || {},
       financialResults: financialResults || [],
       projectResponsibles: projectResponsibles || [],
-      followUps: followUps || []
+      followUps: followUps || [],
+      status: status || 'actif',
+      startDate: startDate || null
     });
 
     console.log(`✅ Projet créé ID: ${newProject.id}`);
@@ -88,7 +92,9 @@ router.put('/:id', authenticateToken, isAdmin, async (req, res) => {
       investmentDetails,
       financialResults,
       projectResponsibles,
-      followUps
+      followUps,
+      status,
+      startDate
     } = req.body;
 
     console.log(`📝 Mise à jour projet ID ${projectId}:`, { name, projectType });
@@ -108,7 +114,9 @@ router.put('/:id', authenticateToken, isAdmin, async (req, res) => {
       investmentDetails: investmentDetails || existingProject.investmentDetails,
       financialResults: financialResults || existingProject.financialResults,
       projectResponsibles: projectResponsibles || existingProject.projectResponsibles,
-      followUps: followUps || existingProject.followUps
+      followUps: followUps || existingProject.followUps,
+      status: status || existingProject.status,
+      startDate: startDate || existingProject.startDate
     });
 
     console.log(`✅ Projet mis à jour ID: ${projectId}`);

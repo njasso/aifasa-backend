@@ -1,4 +1,4 @@
-// server.js
+// server.js - COMPLET À JOUR (routes events, forum, jobs ajoutées)
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -144,6 +144,9 @@ const galleryRoutes = require('./routes/gallery');
 const publicationRoutes = require('./routes/publications');
 const dashboardRoutes = require('./routes/dashboard');
 const adminUserRoutes = require('./routes/admin/users');
+const eventRoutes = require('./routes/events');         // ← AJOUTÉ
+const forumRoutes = require('./routes/forum');           // ← AJOUTÉ
+const jobRoutes = require('./routes/jobs');              // ← AJOUTÉ
 
 app.use('/api/auth', authRoutes);
 app.use('/api/documents', documentRoutes);
@@ -154,6 +157,9 @@ app.use('/api/gallery', galleryRoutes);
 app.use('/api/publications', publicationRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/admin/users', adminUserRoutes);
+app.use('/api/events', eventRoutes);                    // ← AJOUTÉ
+app.use('/api/forum', forumRoutes);                     // ← AJOUTÉ
+app.use('/api/jobs', jobRoutes);                        // ← AJOUTÉ
 
 // ==================== ROUTES DE TEST ====================
 app.get('/api/test', (req, res) => {
@@ -210,6 +216,7 @@ app.listen(PORT, async () => {
   console.log(`🌐 URL: http://localhost:${PORT}`);
   console.log(`🌐 CORS autorisé pour : ${allOrigins.join(', ')}`);
   console.log(`🛡️  Sécurité: Helmet activé (CSP, X-Frame-Options, XSS, noSniff, Referrer, Permissions)`);
+  console.log(`📡 Routes: auth, documents, members, treasury, projects, gallery, publications, dashboard, admin/users, events, forum, jobs`);
   console.log(`=========================================\n`);
   
   await testDbConnection();
