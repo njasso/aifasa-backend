@@ -1,4 +1,4 @@
-// models/Job.js
+// models/Job.js - COMPLET AVEC UPDATE
 const { pool } = require('../config/db');
 
 class Job {
@@ -21,6 +21,17 @@ class Job {
       `INSERT INTO jobs (title, type, organization, location, description, contact_email, deadline) 
        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
       [title, type, organization, location, description, contact_email, deadline]
+    );
+    return result.rows[0];
+  }
+
+  // ✅ AJOUTÉ - Mise à jour d'une offre
+  static async update(id, data) {
+    const { title, type, organization, location, description, contact_email, deadline } = data;
+    const result = await pool.query(
+      `UPDATE jobs SET title=$1, type=$2, organization=$3, location=$4, description=$5, contact_email=$6, deadline=$7 
+       WHERE id=$8 RETURNING *`,
+      [title, type, organization, location, description, contact_email, deadline, id]
     );
     return result.rows[0];
   }
