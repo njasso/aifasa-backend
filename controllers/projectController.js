@@ -46,7 +46,7 @@ const projectController = {
       const project = await Project.delete(req.params.id);
       if (!project) return res.status(404).json({ error: 'Projet non trouvé' });
       res.json(project);
-    } cast (error) {
+    } catch (error) {
       res.status(500).json({ error: 'Erreur serveur' });
     }
   },

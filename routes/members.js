@@ -49,6 +49,19 @@ const cleanUpTempFiles = async (files) => {
   }
 };
 
+// ✅ Résout un email de compte utilisateur vers son user_id (pour le lien admin)
+const resolveUserIdFromEmail = async (email) => {
+  if (!email || !email.trim()) return undefined; // undefined = ne pas toucher au lien existant
+  const { pool } = require('../config/db');
+  const result = await pool.query('SELECT id FROM users WHERE email = $1', [email.trim()]);
+  if (result.rows.length === 0) {
+    const err = new Error(`Aucun compte utilisateur trouvé pour l'email "${email}"`);
+    err.statusCode = 400;
+    throw err;
+  }
+  return result.rows[0].id;
+};
+
 // ============ ROUTES PUBLIQUES ============
 
 router.get('/', async (req, res) => {
@@ -61,6 +74,116 @@ router.get('/', async (req, res) => {
   }
 });
 
+// ============ ESPACE MEMBRE - LIBRE-SERVICE ============
+// IMPORTANT : ces routes doivent rester déclarées AVANT '/:id' pour
+// qu'Express ne traite pas "me" comme un identifiant numérique.
+
+// GET - Ma propre fiche annuaire (membre connecté, basé sur le compte lié)
+router.get('/me', authenticateToken, async (req, res) => {
+  try {
+    const member = await Member.findByUserId(req.user.id);
+    if (!member) {
+      return res.status(404).json({
+        error: "Aucune fiche membre n'est associée à votre compte. Contactez un administrateur pour faire le lien."
+      });
+    }
+    res.json(member);
+  } catch (error) {
+    console.error('❌ Erreur GET /members/me:', error.message);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// PUT - Modifier ma propre fiche annuaire (champs personnels uniquement)
+// Volontairement exclus du formulaire libre-service : role, has_paid_adhesion,
+// social_contribution_status, tontine_status, ag_absence_count,
+// is_new_member, last_annual_inscription_date — réservés à l'admin/trésorerie.
+router.put(
+  '/me',
+  authenticateToken,
+  upload.fields([
+    { name: 'profilePicture', maxCount: 1 },
+    { name: 'cvFile', maxCount: 1 }
+  ]),
+  async (req, res) => {
+    try {
+      const existing = await Member.findByUserId(req.user.id);
+      if (!existing) {
+        await cleanUpTempFiles(req.files);
+        return res.status(404).json({
+          error: "Aucune fiche membre n'est associée à votre compte. Contactez un administrateur pour faire le lien."
+        });
+      }
+
+      const {
+        first_name,
+        last_name,
+        phone_number,
+        sex,
+        location,
+        address,
+        contact,
+        profession,
+        employment_structure,
+        company_or_project,
+        activities
+      } = req.body;
+
+      const updateData = {
+        first_name: first_name || existing.first_name,
+        last_name: last_name || existing.last_name,
+        phone_number: phone_number !== undefined ? phone_number : existing.phone_number,
+        sex: sex || existing.sex,
+        location: location || existing.location,
+        address: address || existing.address,
+        contact: contact || existing.contact,
+        profession: profession || existing.profession,
+        employment_structure: employment_structure !== undefined ? employment_structure : existing.employment_structure,
+        company_or_project: company_or_project !== undefined ? company_or_project : existing.company_or_project,
+        activities: activities !== undefined ? activities : existing.activities,
+        // ⛔ role et champs de gouvernance/trésorerie volontairement non repris ici
+      };
+
+      const profilePictureFile = req.files?.profilePicture ? req.files.profilePicture[0] : null;
+      if (profilePictureFile) {
+        if (existing.public_id) {
+          await cloudinary.uploader.destroy(existing.public_id).catch(e => console.error("Erreur suppression ancienne photo:", e));
+        }
+        const result = await cloudinary.uploader.upload(profilePictureFile.path, {
+          folder: 'aifasa_members_profiles',
+          resource_type: 'image'
+        });
+        updateData.photo_url = result.secure_url;
+        updateData.public_id = result.public_id;
+      }
+
+      const cvFile = req.files?.cvFile ? req.files.cvFile[0] : null;
+      if (cvFile) {
+        if (existing.cv_public_id) {
+          await cloudinary.uploader.destroy(existing.cv_public_id, { resource_type: 'raw' }).catch(e => console.error("Erreur suppression ancien CV:", e));
+        }
+        const result = await cloudinary.uploader.upload(cvFile.path, {
+          folder: 'aifasa_members_cvs',
+          resource_type: 'raw'
+        });
+        updateData.cv_url = result.secure_url;
+        updateData.cv_public_id = result.public_id;
+      }
+
+      const member = await Member.update(existing.id, updateData);
+      console.log(`✅ Membre (libre-service) mis à jour ID: ${existing.id} par user ${req.user.id}`);
+      res.json(member);
+    } catch (error) {
+      console.error('❌ Erreur PUT /members/me:', error.message);
+      await cleanUpTempFiles(req.files);
+      res.status(500).json({ error: 'Erreur serveur', details: error.message });
+    } finally {
+      await cleanUpTempFiles(req.files);
+    }
+  }
+);
+
+// GET - Fiche détaillée d'un membre (public)
 router.get('/:id', async (req, res) => {
   try {
     const member = await Member.findById(req.params.id);
@@ -75,6 +198,19 @@ router.get('/:id', async (req, res) => {
 });
 
 // ============ ROUTES ADMIN ============
+
+// GET - Email du compte de connexion lié à un membre (admin uniquement)
+// Jamais exposé via les routes publiques GET / et GET /:id pour ne pas
+// divulguer les adresses email de connexion des membres.
+router.get('/:id/linked-account', authenticateToken, isAdmin, async (req, res) => {
+  try {
+    const email = await Member.getLinkedAccountEmail(req.params.id);
+    res.json({ email });
+  } catch (error) {
+    console.error('❌ Erreur GET /members/:id/linked-account:', error.message);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
 
 // ✅ POST - Créer un membre
 router.post(
@@ -102,12 +238,21 @@ router.post(
         employment_structure,
         company_or_project,
         activities,
-        role
+        role,
+        user_email
       } = req.body;
 
       if (!first_name || !last_name) {
         await cleanUpTempFiles(req.files);
         return res.status(400).json({ error: 'Le prénom et le nom sont requis' });
+      }
+
+      let user_id;
+      try {
+        user_id = await resolveUserIdFromEmail(user_email);
+      } catch (linkError) {
+        await cleanUpTempFiles(req.files);
+        return res.status(linkError.statusCode || 400).json({ error: linkError.message });
       }
 
       const profilePictureFile = req.files?.profilePicture ? req.files.profilePicture[0] : null;
@@ -152,7 +297,8 @@ router.post(
         photo_url,
         public_id,
         cv_url,
-        cv_public_id
+        cv_public_id,
+        user_id
       });
 
       console.log(`✅ Membre créé ID: ${member.id}`);
@@ -196,13 +342,28 @@ router.put(
         employment_structure,
         company_or_project,
         activities,
-        role
+        role,
+        user_email
       } = req.body;
 
       const existing = await Member.findById(memberId);
       if (!existing) {
         await cleanUpTempFiles(req.files);
         return res.status(404).json({ error: 'Membre non trouvé' });
+      }
+
+      // user_email vide/absent => on ne touche pas au lien existant.
+      // user_email = '' explicitement envoyé pour délier ? on garde simple :
+      // seule une adresse valide modifie le lien (voir resolveUserIdFromEmail).
+      let user_id = existing.user_id;
+      if (user_email !== undefined) {
+        try {
+          const resolved = await resolveUserIdFromEmail(user_email);
+          if (resolved !== undefined) user_id = resolved;
+        } catch (linkError) {
+          await cleanUpTempFiles(req.files);
+          return res.status(linkError.statusCode || 400).json({ error: linkError.message });
+        }
       }
 
       const updateData = {
@@ -217,7 +378,8 @@ router.put(
         employment_structure: employment_structure !== undefined ? employment_structure : existing.employment_structure,
         company_or_project: company_or_project !== undefined ? company_or_project : existing.company_or_project,
         activities: activities !== undefined ? activities : existing.activities,
-        role: role || existing.role
+        role: role || existing.role,
+        user_id
       };
 
       console.log('📝 Données mises à jour:', updateData);

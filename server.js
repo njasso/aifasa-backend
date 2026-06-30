@@ -24,7 +24,7 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       fontSrc: ["'self'", 'https://fonts.gstatic.com'],
       imgSrc: ["'self'", 'data:', 'https:', 'blob:'],
-      connectSrc: ["'self'", 'https://aifasa-backend.onrender.com', 'https://*.onrender.com'],
+      connectSrc: ["'self'", 'https://aifasa-backend.onrender.com', 'https://*.onrender.com', 'https://api.aifasa17.org'],
       mediaSrc: ["'self'"],
       objectSrc: ["'none'"],
       frameAncestors: ["'none'"], // ← Remplace X-Frame-Options
@@ -68,6 +68,8 @@ const knownOrigins = [
   'http://127.0.0.1:3000',
   'https://harmonious-boba-e7278d.netlify.app',
   'https://aifasa-frontend.netlify.app',
+  'https://aifasa17.org',        // ← AJOUTÉ
+  'https://www.aifasa17.org',    // ← AJOUTÉ
 ];
 
 const allOrigins = [...new Set([...knownOrigins, ...allowedOrigins])];
@@ -78,14 +80,15 @@ const corsOptions = {
     if (!origin) {
       return callback(null, true);
     }
-    
-    // Vérifier si l'origine est autorisée
+
+    // ✅ CORRIGÉ : la liste blanche est désormais réellement appliquée.
+    // Toute origine non listée est rejetée (au lieu d'être autorisée "temporairement").
     if (allOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.log(`⚠️ CORS: Origine non listée autorisée temporairement: ${origin}`);
-      callback(null, true); // Temporairement permissif
+      return callback(null, true);
     }
+
+    console.warn(`⛔ CORS: Origine refusée: ${origin}`);
+    return callback(new Error('Origine non autorisée par la politique CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
@@ -100,21 +103,28 @@ app.use(cors(corsOptions));
 // Gérer explicitement les requêtes OPTIONS
 app.options('*', cors(corsOptions));
 
-// Middleware pour les headers CORS supplémentaires
+// Middleware pour les headers CORS supplémentaires (cohérent avec corsOptions ci-dessus)
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (allOrigins.includes(origin)) {
+  if (origin && allOrigins.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
   }
-  res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  
-  // Répondre immédiatement aux requêtes OPTIONS
+
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
   next();
+});
+
+// ✅ Gestion explicite des erreurs CORS (origine refusée)
+app.use((err, req, res, next) => {
+  if (err && err.message === 'Origine non autorisée par la politique CORS') {
+    return res.status(403).json({ error: 'Origine non autorisée.' });
+  }
+  next(err);
 });
 
 app.use(express.json());

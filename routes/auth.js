@@ -108,4 +108,50 @@ router.get('/me', async (req, res) => {
   }
 });
 
+// POST /api/auth/change-password — le membre connecté change SON propre mot de passe
+router.post('/change-password', async (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) {
+    return res.status(401).json({ error: 'Non autorisé' });
+  }
+
+  let decoded;
+  try {
+    decoded = jwt.verify(token, JWT_SECRET);
+  } catch (error) {
+    return res.status(401).json({ error: 'Token invalide ou expiré' });
+  }
+
+  const { currentPassword, newPassword } = req.body;
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Mot de passe actuel et nouveau mot de passe requis' });
+  }
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: 'Le nouveau mot de passe doit contenir au moins 6 caractères' });
+  }
+
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE id = $1', [decoded.id]);
+    const user = result.rows[0];
+    if (!user) {
+      return res.status(404).json({ error: 'Utilisateur non trouvé' });
+    }
+
+    const isCurrentValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isCurrentValid) {
+      return res.status(401).json({ error: 'Mot de passe actuel incorrect' });
+    }
+
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+    await pool.query('UPDATE users SET password = $1 WHERE id = $2', [hashedNewPassword, user.id]);
+
+    console.log(`🔑 Mot de passe changé avec succès pour l'utilisateur ${user.id}`);
+    res.json({ message: 'Mot de passe modifié avec succès' });
+  } catch (error) {
+    console.error('❌ Erreur change-password:', error.message);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
 module.exports = router;
