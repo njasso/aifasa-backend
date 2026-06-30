@@ -101,6 +101,9 @@ router.put('/:id', authenticateToken, isAdmin, async (req, res) => {
     }
 
     if (role) {
+      if (!['admin', 'treasurer', 'member'].includes(role)) {
+        return res.status(400).json({ error: 'Rôle invalide' });
+      }
       query += `role = $${paramCount}, `;
       values.push(role);
       paramCount++;
